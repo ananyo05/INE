@@ -1,5 +1,5 @@
 # Agent State — INE Price Tracker
-Last updated: 2026-09-19T11:42:00Z by Antigravity Agent
+Last updated: 2026-09-19T12:06:00Z by Antigravity Agent
 Status: Ready for deploy
 
 ## Done
@@ -12,15 +12,16 @@ Status: Ready for deploy
 - Step 6 Completed: Built full React + Vite frontend dashboard (`frontend/src/App.jsx`, `frontend/src/index.css`, `frontend/src/api.js`) with modern obsidian/slate design system, live catalog search modal, tracked products list, Recharts area price history chart, and scrape log audit table. Tested production build (`npm run build`) and verified dev server at `http://localhost:5173`.
 - Step 7 Completed: Implemented headed-mode script `backend/scripts/scrape-headed.js` (`npm run scrape:headed`) running visible Chromium (`headless: false`, `slowMo: 120ms`) across 3 representative scenarios (Product 329 success, Product 714 out-of-stock success, Product 999999 deliberate 3x retry failure). Verified end-to-end with terminal output table.
 - Step 8 & 9 Completed: Authored comprehensive `README.md` (with setup, deployment guides for Supabase/Render/Vercel/cron-job.org, and deliverable placeholders) and `DESIGN_NOTE.md` (detailing anti-bot bypass, honeypot evasion, async cookie handling, and honest post-mortem).
-- Git repository initialized, `.gitignore` configured, clean commit history.
+- Git repository initialized, `.gitignore` configured, GitHub remote linked (`https://github.com/ananyo05/INE.git`).
 - Enhanced `parsePrice` to support varied mock store currency formatting (e.g. `Rs.`, `₹`, `INR`, decimals).
-- Added Supabase JWT validation and graceful error fallback in `supabase.js` and `repository.js`.
+- Added Supabase key recognition and graceful fallback in `supabase.js` and `repository.js`.
+- Filled GitHub repository URL into `README.md`.
 
 ## In progress
-- Complete and verified. Ready for user screen recording and deployment.
+- Ready for user screen recording via `npm run scrape:headed` and deployment to Supabase, Render, Vercel, and cron-job.org.
 
 ## Next step
-User provides or pastes their live deployment URLs (GitHub, Render, Vercel, Screen Recording) into the placeholders in `README.md`.
+User provides or pastes their live deployment URLs (Render, Vercel, Screen Recording) into the placeholders in `README.md`.
 
 ## Decisions & gotchas (additive — do not delete)
 - Target store https://demo.inelabteamdev.com/ has an empty root HTML (`<div id="root"></div>`) with zero SSR content.
