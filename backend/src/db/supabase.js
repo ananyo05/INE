@@ -8,7 +8,7 @@ const rawUrl = process.env.SUPABASE_URL;
 const supabaseUrl = rawUrl ? rawUrl.trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '') : null;
 const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY)?.trim();
 
-const isJwt = Boolean(supabaseKey && (supabaseKey.startsWith('eyJ') || supabaseKey.length > 50));
+const isJwt = Boolean(supabaseKey && (supabaseKey.startsWith('eyJ') || supabaseKey.startsWith('sb_secret_')));
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl && 
@@ -27,7 +27,7 @@ export const supabase = isSupabaseConfigured
 if (!isSupabaseConfigured) {
   if (supabaseKey && !isJwt) {
     console.warn(
-      `[DB Warning] Supabase API key in .env appears to be a database password or personal token rather than the API JWT key (starts with 'eyJ...'). Falling back to local in-memory store. In Supabase Dashboard, get the 'service_role' key under Project Settings -> API.`
+      `[DB Warning] Supabase API key in .env does not look like a valid API key (should start with 'eyJ' for legacy keys or 'sb_secret_' for new-format keys). Falling back to local in-memory store. Get the correct key from Supabase Dashboard -> Project Settings -> API Keys.`
     );
   } else {
     console.warn(

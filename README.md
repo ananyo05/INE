@@ -5,7 +5,7 @@ A resilient, production-grade full-stack web application that monitors product p
 ---
 
 ## 📌 Deliverable Links (Fill in Once Deployed)
-- **GitHub Repository URL**: `[PASTE_GITHUB_REPO_URL_HERE]`
+- **GitHub Repository URL**: https://github.com/ananyo05/INE
 - **Live Frontend (Vercel)**: `[PASTE_VERCEL_FRONTEND_URL_HERE]`
 - **Live Backend (Render)**: `[PASTE_RENDER_BACKEND_URL_HERE]`
 - **Screen Recording (Headed Mode Video)**: `[PASTE_SCREEN_RECORDING_LINK_HERE]`
