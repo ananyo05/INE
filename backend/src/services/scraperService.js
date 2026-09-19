@@ -80,7 +80,7 @@ export class ScraperService {
 
   async closeBrowser() {
     if (this.browser) {
-      await this.browser.close().catch(() => {});
+      await this.browser.close().catch(() => { });
       this.browser = null;
     }
   }
@@ -198,11 +198,17 @@ export class ScraperService {
         }
 
         // 10. Extract valid price from <output> inside .price-main (ignoring decoy spans)
-        const rawOutput = await page.$eval('.price-main output', (el) => el.innerText).catch(() => null);
+        await page.waitForFunction(() => {
+          const el = document.querySelector('.price-main .pv-q9');
+          if (!el) return false;
+          return parseFloat(window.getComputedStyle(el).opacity) >= 0.99;
+        }, { timeout: 8000 }).catch(() => { });
+
+        const rawOutput = await page.$eval('.price-main .pv-q9', (el) => el.innerText).catch(() => null);
         const parsed = parsePrice(rawOutput);
 
         if (!parsed || parsed <= 0) {
-          throw new Error(`Malformed or missing price in output element: "${rawOutput}"`);
+          throw new Error(`Malformed or missing price in "${rawOutput}"`);
         }
 
         // 11. Extract stock badge
@@ -229,7 +235,7 @@ export class ScraperService {
         }
       } finally {
         if (context) {
-          await context.close().catch(() => {});
+          await context.close().catch(() => { });
         }
       }
     }
