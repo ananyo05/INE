@@ -1,5 +1,5 @@
 # Agent State — INE Price Tracker
-Last updated: 2026-09-19T11:41:00Z by Antigravity Agent
+Last updated: 2026-09-19T11:42:00Z by Antigravity Agent
 Status: Ready for deploy
 
 ## Done
@@ -12,8 +12,9 @@ Status: Ready for deploy
 - Step 6 Completed: Built full React + Vite frontend dashboard (`frontend/src/App.jsx`, `frontend/src/index.css`, `frontend/src/api.js`) with modern obsidian/slate design system, live catalog search modal, tracked products list, Recharts area price history chart, and scrape log audit table. Tested production build (`npm run build`) and verified dev server at `http://localhost:5173`.
 - Step 7 Completed: Implemented headed-mode script `backend/scripts/scrape-headed.js` (`npm run scrape:headed`) running visible Chromium (`headless: false`, `slowMo: 120ms`) across 3 representative scenarios (Product 329 success, Product 714 out-of-stock success, Product 999999 deliberate 3x retry failure). Verified end-to-end with terminal output table.
 - Step 8 & 9 Completed: Authored comprehensive `README.md` (with setup, deployment guides for Supabase/Render/Vercel/cron-job.org, and deliverable placeholders) and `DESIGN_NOTE.md` (detailing anti-bot bypass, honeypot evasion, async cookie handling, and honest post-mortem).
-- Git repository initialized, `.gitignore` configured, initial commit created (`47c23ff`).
-- Live end-to-end verified: 3 real products tracked and scraped into local server (`Meridian Blender Air`, `Cobalt Ultrabook Lite`, `Summit Approach Shoe S`), displaying live prices, stock states, and honest retry logs.
+- Git repository initialized, `.gitignore` configured, clean commit history.
+- Enhanced `parsePrice` to support varied mock store currency formatting (e.g. `Rs.`, `₹`, `INR`, decimals).
+- Added Supabase JWT validation and graceful error fallback in `supabase.js` and `repository.js`.
 
 ## In progress
 - Complete and verified. Ready for user screen recording and deployment.
@@ -34,9 +35,11 @@ User provides or pastes their live deployment URLs (GitHub, Render, Vercel, Scre
 - `POST /api/scrape/run` checks `Authorization: Bearer <CRON_SECRET>` or `x-cron-secret` header, iterates all tracked products with full error isolation, and responds with aggregate counts and durations.
 - Designed frontend with high visual polish (Outfit/Inter fonts, Recharts interactive price chart, status badges, and honest scrape log table).
 - Discovered that the mock store contains a delayed cookie banner timer (`Yr()` with 1500–5000ms delay) that pops up mid-interaction and intercepts pointer clicks. Built `clearCookieInterference()` into `scraperService.js` to purge delayed overlays and ensure rock-solid interaction reliability.
+- Mock store alternates between `₹` and `Rs.` currency notation with zero-width characters (e.g. `"R\u200Bs\u200B.\u200B\u00A0\u200B14,403.00"`). Updated `parsePrice()` to extract the numeric price pattern safely.
+- Supabase client requires the project JWT key (`service_role` or `anon`, which start with `eyJ...`) rather than personal tokens or database passwords. Added proactive JWT check in `supabase.js` with clear console warning pointing to Project Settings -> API.
 
 ## Known issues / not yet handled
-- Supabase credentials (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) need to be configured by the user in `backend/.env` for remote persistence (in-memory store active by default).
+- For Supabase remote persistence, ensure the `service_role` JWT key from Supabase Dashboard (Project Settings -> API) is set in `backend/.env`.
 - External cron job at cron-job.org needs to be registered with the live Render URL after deployment.
 
 ## Environment / secrets needed (names only, never values)
