@@ -10,14 +10,18 @@ const BACKOFF_DELAYS = [1000, 3000, 8000]; // 1s, 3s, 8s
 
 /**
  * Clean and parse raw price string.
- * Strips zero-width characters (\u200B, \uFEFF, etc.), currency marks, and commas.
+ * Strips zero-width characters (\u200B, \uFEFF, etc.) and extracts numeric price
+ * handling various mock store formats (₹, Rs., INR, spaced, decimals).
  */
 export function parsePrice(rawText) {
   if (!rawText || typeof rawText !== 'string') return null;
-  const cleaned = rawText
-    .replace(/[\u200B-\u200D\uFEFF\xA0]/g, '')
-    .replace(/[₹$,\s]/g, '');
-  const num = parseFloat(cleaned);
+  // 1. Remove zero-width characters and special spaces
+  const cleaned = rawText.replace(/[\u200B-\u200D\uFEFF\xA0]/g, '');
+  // 2. Extract numeric pattern (e.g. 1,45,419 or 14,403.00 or 42.90)
+  const match = cleaned.match(/(\d[\d,]*(?:\.\d+)?)/);
+  if (!match) return null;
+  const numStr = match[1].replace(/,/g, '');
+  const num = parseFloat(numStr);
   return !isNaN(num) && num > 0 ? num : null;
 }
 

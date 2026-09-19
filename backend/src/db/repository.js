@@ -11,54 +11,58 @@ const memoryStore = {
 export const repository = {
   async getAllTrackedProducts() {
     if (isSupabaseConfigured) {
-      const { data: products, error } = await supabase
-        .from('tracked_products')
-        .select(`
-          id,
-          external_product_id,
-          url,
-          name,
-          category,
-          brand,
-          sku,
-          created_at
-        `)
-        .order('created_at', { ascending: false });
+      try {
+        const { data: products, error } = await supabase
+          .from('tracked_products')
+          .select(`
+            id,
+            external_product_id,
+            url,
+            name,
+            category,
+            brand,
+            sku,
+            created_at
+          `)
+          .order('created_at', { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
 
-      // Fetch the latest price and last scrape log for each product
-      const enriched = await Promise.all(
-        products.map(async (p) => {
-          const [priceRes, logRes] = await Promise.all([
-            supabase
-              .from('price_history')
-              .select('price, currency, in_stock, scraped_at')
-              .eq('product_id', p.id)
-              .order('scraped_at', { ascending: false })
-              .limit(1)
-              .maybeSingle(),
-            supabase
-              .from('scrape_log')
-              .select('status, attempted_at, duration_ms, retry_count')
-              .eq('product_id', p.id)
-              .order('attempted_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-          ]);
+        // Fetch the latest price and last scrape log for each product
+        const enriched = await Promise.all(
+          products.map(async (p) => {
+            const [priceRes, logRes] = await Promise.all([
+              supabase
+                .from('price_history')
+                .select('price, currency, in_stock, scraped_at')
+                .eq('product_id', p.id)
+                .order('scraped_at', { ascending: false })
+                .limit(1)
+                .maybeSingle(),
+              supabase
+                .from('scrape_log')
+                .select('status, attempted_at, duration_ms, retry_count')
+                .eq('product_id', p.id)
+                .order('attempted_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+            ]);
 
-          return {
-            ...p,
-            latest_price: priceRes.data ? priceRes.data.price : null,
-            currency: priceRes.data ? priceRes.data.currency : 'INR',
-            in_stock: priceRes.data ? priceRes.data.in_stock : null,
-            last_scraped_at: logRes.data ? logRes.data.attempted_at : null,
-            last_scrape_status: logRes.data ? logRes.data.status : null
-          };
-        })
-      );
+            return {
+              ...p,
+              latest_price: priceRes.data ? priceRes.data.price : null,
+              currency: priceRes.data ? priceRes.data.currency : 'INR',
+              in_stock: priceRes.data ? priceRes.data.in_stock : null,
+              last_scraped_at: logRes.data ? logRes.data.attempted_at : null,
+              last_scrape_status: logRes.data ? logRes.data.status : null
+            };
+          })
+        );
 
-      return enriched;
+        return enriched;
+      } catch (err) {
+        console.warn('[DB Fallback] Supabase query failed, falling back to local memory:', err.message);
+      }
     }
 
     // In-memory fallback

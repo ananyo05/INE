@@ -3,12 +3,17 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+// Normalize URL in case /rest/v1 or trailing slash was pasted
+const rawUrl = process.env.SUPABASE_URL;
+const supabaseUrl = rawUrl ? rawUrl.trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '') : null;
+const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY)?.trim();
+
+const isJwt = Boolean(supabaseKey && (supabaseKey.startsWith('eyJ') || supabaseKey.length > 50));
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl && 
   supabaseKey && 
+  isJwt &&
   !supabaseUrl.includes('your-supabase-project') &&
   !supabaseKey.includes('your-supabase-service-role-key')
 );
@@ -20,9 +25,15 @@ export const supabase = isSupabaseConfigured
   : null;
 
 if (!isSupabaseConfigured) {
-  console.warn(
-    '[DB Warning] Supabase credentials not set or contain default placeholders in .env. Falling back to local in-memory persistence store.'
-  );
+  if (supabaseKey && !isJwt) {
+    console.warn(
+      `[DB Warning] Supabase API key in .env appears to be a database password or personal token rather than the API JWT key (starts with 'eyJ...'). Falling back to local in-memory store. In Supabase Dashboard, get the 'service_role' key under Project Settings -> API.`
+    );
+  } else {
+    console.warn(
+      '[DB Warning] Supabase credentials not set or contain default placeholders in .env. Falling back to local in-memory persistence store.'
+    );
+  }
 } else {
   console.log('[DB Info] Connected to Supabase at:', supabaseUrl);
 }
