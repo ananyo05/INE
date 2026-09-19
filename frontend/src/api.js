@@ -40,13 +40,13 @@ export async function fetchProductLogs(productId) {
 }
 
 export async function triggerBatchScrape() {
-  const res = await fetch(`${API_BASE}/scrape/run`, {
+  const res = await fetch(`${API_BASE}/scrape/trigger-manual`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${import.meta.env.VITE_CRON_SECRET || 'your-secure-cron-secret-token'}`
+      'Content-Type': 'application/json'
     }
   });
   if (!res.ok) throw new Error(`Batch scrape trigger failed (${res.status})`);
   return res.json();
 }
+
