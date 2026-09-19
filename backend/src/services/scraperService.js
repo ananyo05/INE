@@ -187,7 +187,7 @@ export class ScraperService {
         // 8. Wait for outcome: either .price-success or .price-error
         // Note: Mock store's Xn() randomly introduces a 900ms delay or retry requirement
         await page.waitForSelector('.price-block.price-success, .price-block.price-error', {
-          timeout: 10000
+          timeout: 15000  // bumped from 10000 — Render's shared CPU adds latency to the pointer-dwell simulation
         });
 
         // 9. Check if store displayed an error
@@ -199,12 +199,22 @@ export class ScraperService {
 
         // 10. Extract valid price from <output> inside .price-main (ignoring decoy spans)
         await page.waitForFunction(() => {
-          const el = document.querySelector('.price-main .pv-q9');
-          if (!el) return false;
-          return parseFloat(window.getComputedStyle(el).opacity) >= 0.99;
+          const container = document.querySelector('.price-main');
+          if (!container) return false;
+          return Array.from(container.children).some(
+            (el) => parseFloat(window.getComputedStyle(el).opacity) >= 0.99
+          );
         }, { timeout: 8000 }).catch(() => { });
 
-        const rawOutput = await page.$eval('.price-main .pv-q9', (el) => el.innerText).catch(() => null);
+        const rawOutput = await page.evaluate(() => {
+          const container = document.querySelector('.price-main');
+          if (!container) return null;
+          const visible = Array.from(container.children).find(
+            (el) => parseFloat(window.getComputedStyle(el).opacity) >= 0.99
+          );
+          return visible ? visible.innerText : null;
+        }).catch(() => null);
+
         const parsed = parsePrice(rawOutput);
 
         if (!parsed || parsed <= 0) {
