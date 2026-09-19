@@ -93,13 +93,10 @@ async function runBatchScrape() {
 }
 
 scrapeRouter.post('/run', verifyCronSecret, async (req, res) => {
-  try {
-    const summary = await runBatchScrape();
-    res.json(summary);
-  } catch (err) {
+  res.json({ success: true, message: 'Batch scrape started' });
+  runBatchScrape().catch((err) => {
     console.error('[Scraper Run Fatal Error]:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
+  });
 });
 
 scrapeRouter.post('/trigger-manual', async (req, res) => {
