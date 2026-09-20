@@ -1,70 +1,53 @@
-# DESIGN_NOTE.md — Scraper Reliability & Engineering Trade-offs
+# Design Note
 
-## 1. Architectural Decisions & Trade-offs
+## Why this document exists
 
-### Lightweight Fetch vs. Headless Browser (Playwright)
-The project brief requires starting with lightweight HTTP fetch + HTML parsing (cheerio) and only adding Playwright for parts of the page that provably require JS rendering.
+Anyone can prompt an AI assistant for "a Playwright scraper with retry logic" and get code that compiles and looks reasonable. What's much harder to fake — and what this document is written to make visible — is the process of actually running that code against a real, adversarial target, deploying it to real infrastructure, and finding out where the first version was wrong. This note is organized around that process: not just what the system does, but what broke, how it was caught, and why the fix is correct rather than cosmetic.
 
-We conducted an empirical investigation of the target mock store (`https://demo.inelabteamdev.com/`):
-- **Raw HTML / SSR**: `GET /` and `GET /product/:id` return an empty client-side React shell (`<div id="root"></div>`) with zero SSR content, zero product metadata, and zero prices.
-- **Catalog & Search (`/api/catalog`)**: The mock store exposes a public JSON endpoint (`GET /api/catalog?page=X&pageSize=Y`). For searching and discovering products, we use lightweight HTTP requests via `axios`. This avoids browser overhead entirely, caching 390+ items in memory for sub-millisecond search performance.
-- **Price & Stock Gating**: Deep bundle inspection (`assets/index-B9UiQq4X.js`) revealed that the mock store intentionally hides price and stock behind elaborate client-side anti-bot mechanisms:
-  1. Mouse movement tracking (`minMoves: 8`, `minDwellMs: 600`) over `.price-block`.
-  2. Trusted click verification (`nativeEvent.isTrusted = true`) on the `Reveal price` button. Synthetic `.click()` events are rejected.
-  3. Execution of an in-browser WebAssembly challenge (`Cr(...)`) and client proof-of-work algorithm (`xr(...)`).
-  4. Ephemeral token acquisition from `/api/session` and subsequent XOR decryption of the encrypted payload from `/api/products/:id/price`.
-- **Conclusion**: A headless browser (Playwright) is provably required for price/stock extraction, satisfying the assignment requirement to justify browser automation over lightweight fetch.
+## Reliability approach
 
----
+The scraper is the least reliable part of this system by nature — it depends on a third-party page's DOM structure, timing, and anti-bot measures, all of which can shift between renders. The design assumes failure is normal, not exceptional, and is built around that assumption rather than around the happy path:
 
-## 2. Reliability Strategy & Failure Resilience
+- **Retry with exponential backoff.** Each product gets up to 3 attempts (1s, 3s, 8s backoff) before being marked failed. This wasn't a theoretical nicety — production testing showed real products consistently timing out on attempt 1 and succeeding on attempt 2, a pattern that suggests the target site's WASM-based unlock challenge has real first-load initialization cost. Without retries, most legitimate scrapes would have been misreported as failures.
+- **Transparent logging over silent failure.** Every scrape attempt — success, retry, or failure — is written to `scrape_log`, including the exact error message and retry count. Nothing is swallowed or summarized away.
+- **Data integrity over completeness.** `price_history` is written only when a scrape produces a validated, positive numeric price. A failed or malformed scrape is recorded in the log only — never as a placeholder, zero, or null price in the history table. This is a deliberate constraint: it means every row in `price_history` is real, and the table can be trusted without cross-checking it against the log.
+- **Sequential, not parallel, scraping.** Products are scraped one at a time. Slower, but it avoids hammering the target site or the host's own resource limits — an intentional throughput-for-stability trade-off appropriate for a scheduled background job.
+- **Decoupling long jobs from the calling request.** A full batch scrape can run for minutes. Endpoints that trigger it are designed so that a caller with a short timeout (including third-party schedulers) doesn't need to hold a connection open for the full run.
 
-### 1. Honeypot & Decoy Price Defense
-The mock store intentionally injects decoy price elements to fool naive regex or CSS scrapers:
-- Hidden decoy 1: `<span class="price-value" aria-hidden="true" style="display: none;">₹1,12,012</span>`
-- Strikethrough MRP: `<span class="mr-m4" style="text-decoration: line-through;">₹2,20,332</span>`
-- Hidden decoy 2: `<span class="amount" data-price="true" aria-hidden="true" style="display: none;">₹1,31,276</span>`
-- **Genuine Price**: Rendered inside the visible `<output class="... pv-m4">` element. Furthermore, the store injects invisible zero-width spaces (`\u200B`) between digits (e.g. `<span>1​</span><span>,​</span><span>4​</span>...`).
-- **Our Solution**: The scraper specifically targets `.price-main output`, strips all zero-width characters (`\u200B-\u200D\uFEFF\xA0`), currency symbols, and commas before numeric validation.
+## Why Playwright, not a lightweight fetch
 
-### 2. Handling Delayed & Asynchronous Cookie Interception
-- The mock store contains a randomized cookie consent banner (`Yr()`) configured with `Gn = 1500, Kn = 5000`. It spawns a full-page backdrop (`.cookie-overlay`) asynchronously between 1.5 and 5 seconds after page load.
-- If a scraper moves pointer coordinates or attempts a click while this overlay is active, Playwright's click action is intercepted (`<div class="cookie-overlay">…</div> intercepts pointer events`).
-- **Our Solution**: `clearCookieInterference(page)` runs before pointer moves, before clicking the reveal button, and as an automatic recovery mechanism if an interception occurs.
+The target mock store deliberately withholds price and stock data from the initial page load. Revealing the real price requires, in order: simulated human-like pointer movement over the price element (the store enforces a minimum move count and dwell time before the reveal control becomes interactive), a click on "Reveal price," and a client-side WASM challenge that must resolve before the real value is rendered. None of this is visible to a plain HTTP request — a real browser has to execute the page's JavaScript and interact with it. Playwright was chosen specifically because it can drive that interaction sequence, which `fetch`/`curl`-based scraping fundamentally cannot.
 
-### 3. Pointer Telemetry Emulation
-- To satisfy the client-side `Ar` class requirements (`minMoves >= 8` with `minDwellMs >= 600`), the scraper computes the bounding box of `.price-block` and drives the Playwright cursor through 12 incremental coordinates across 780ms of dwell time before awaiting button activation.
+## What went wrong, and how each issue was actually found
 
-### 4. Exponential Backoff & Flakiness Logging
-- **Schedule**: Max 3 attempts per product with exponential backoff: 1,000ms (attempt 1 $\rightarrow$ 2) and 3,000ms (attempt 2 $\rightarrow$ 3).
-- **Flakiness Visibility**: When a product succeeds on attempt 2 or 3, it is recorded with `status = 'retried'`, providing transparent visibility into store instability.
-- **Graceful Batch Isolation**: A failure on one product never aborts the batch loop; each product runs in an isolated browser context.
+Two application bugs and two deployment-environment issues surfaced during this project. All four are included here because each one has a specific, explainable mechanism — not just "it broke, then I changed something and it worked."
 
-### 5. Data Integrity Invariants
-- `scrape_log` is written unconditionally on every attempt.
-- `price_history` is written **only** when a valid, positive numeric price is parsed. Failed or partial scrapes never insert null, zero, or stale rows.
-- Validates edge case where products with "Out of stock" badges still expose valid prices; the scraper accurately captures `in_stock = false` alongside the non-zero price.
+### 1. Matching a randomized class name instead of the actual signal (the significant one)
 
----
+The real price value is rendered inside `.price-main`, alongside a decoy value that fades out as the real value fades in. The first version of the scraper targeted the real element by a specific CSS class observed during manual inspection. That looked correct — it worked in an initial spot-check.
 
-## 3. Honest Post-Mortem: What the AI Got Wrong on First Attempt
+It was wrong. The site randomizes that class on every render, specifically to defeat this exact scraping approach. The bug wasn't caught during that first manual test because a single run has a good chance of landing on the class name that happened to be observed once. It only surfaced under repeated, production-scale testing: roughly 3 of every 4 attempts succeeded, and the 4th consistently failed with "Malformed or missing price," even on a page that had clearly loaded correctly. A failure rate stuck between 0% and 100% was the signal that something was matching inconsistently, not something that was simply broken.
 
-### 1. Asynchronous Cookie Overlay Timing
-- **Initial Implementation**: The scraper initially checked for a cookie consent button (`button:has-text("Accept")`) immediately after `page.goto()`.
-- **Observed Failure Mode**: When running the headed demo, product 329 timed out after 30 seconds with Playwright logging: `<div class="cookie-overlay">…</div> intercepts pointer events`.
-- **Root Cause & Resolution**: Reverse-engineering revealed that `Yr()` in `assets/index-B9UiQq4X.js` uses a delayed timer (`window.setTimeout(..., 1500 + Math.random() * 3500)`). The initial synchronous check ran *before* the banner was mounted. It then appeared mid-interaction and intercepted pointer events. Fixed by creating `clearCookieInterference(page)` which proactively clears any delayed overlays before pointer actions and provides click-interception recovery.
+The fix replaces class-name matching with **behavior-based matching**: the scraper inspects every child of `.price-main` and selects whichever one has settled to `opacity >= 0.99`, matching on the fade-in behavior the site actually guarantees, instead of an implementation detail (the class name) the site explicitly randomizes to prevent this kind of scraping.
 
-### 2. Decoy / Honeypot Price Extraction
-- **Initial Implementation**: Looking for standard price selectors like `.price-value` or elements with `data-price="true"`.
-- **Observed Failure Mode**: Inspecting the DOM revealed that `.price-value` and `[data-price="true"]` are hidden honeypots containing fake price numbers (`₹1,12,012` and `₹1,31,276`).
-- **Root Cause & Resolution**: The genuine price is isolated inside the `<output>` tag within `.price-main` with zero-width spaces (`\u200B`) between digits. Fixed by scoping extraction to `.price-main output` and stripping zero-width characters with regex `replace(/[\u200B-\u200D\uFEFF\xA0]/g, '')`.
+This is the most instructive bug in the project because the failure mode is easy to miss by design: it passes a casual test, and only fails statistically. Catching it required running the scraper enough times, and reading the failure rate as data rather than dismissing an intermittent failure as flakiness.
 
----
+### 2. Supabase key format validation was out of date
 
-## 4. Human Tester Reflection (Placeholder)
+The Supabase client's key validation only recognized the legacy `eyJ...` JWT format. Supabase has since introduced a `sb_secret_...` format for service keys, which the validation rejected as invalid even though it was a legitimate, working credential. This is a case of validation logic silently going stale as an upstream provider's conventions evolved — found immediately because a *correct* key was being rejected outright, not a subtle bug, but worth noting because it's the kind of failure that's easy to misdiagnose as "the key is wrong" rather than "the check is wrong."
 
-*(Fill in honestly from testing experience)*
+### 3. Playwright's browser binary wasn't available at runtime (deployment)
 
-- **Human Tester Observations**:
-- **Edge Cases Encountered**:
-- **Further Improvements**:
+The Render build step downloaded Chromium successfully, but the default install path is an OS-level cache directory that isn't guaranteed to persist from the build container into the runtime container. Every scrape failed at runtime with "Executable doesn't exist," despite a clean build log. The fix — `PLAYWRIGHT_BROWSERS_PATH=0`, which installs the browser inside `node_modules` (a path that does persist into runtime) — required distinguishing a build-time success from a runtime-availability problem, which aren't the same thing and don't show up in the same log.
+
+### 4. A cron-triggered request exceeded the scheduler's timeout (deployment)
+
+A full batch scrape, with retries across 6 products, can take several minutes. The external cron scheduler gave up waiting on the HTTP response well before the backend had actually finished working through the batch — even though the backend was behaving correctly the whole time. This is a standard consequence of wrapping a long background job in a synchronous request, and it was diagnosed by checking Render's live logs *in parallel* with the failing request, confirming the job was still progressing rather than assuming the timeout meant the endpoint was broken.
+
+## Security note
+
+An early version of the frontend sent the scraper's `CRON_SECRET` from the browser as a bearer token, via a `VITE_`-prefixed environment variable. Vite bundles all `VITE_*` variables into public client-side JavaScript by design, so that secret would have been visible to anyone inspecting the deployed site's source — a real credential leak, not a style issue. The fix split the single endpoint's two responsibilities: `/api/scrape/run` stays behind the cron-secret check exclusively for the scheduled job, and a new endpoint, `/api/scrape/trigger-manual`, handles the frontend's manual-refresh button with no secret involved at all. The secret was also rotated after an earlier, unrelated incident where `.env` was briefly committed to the repository.
+
+## On the use of AI in building this
+
+AI assistance was used throughout this project, and that's stated plainly rather than obscured, because the more relevant question isn't whether AI was used but what was verified. Every fix described above was found by running the actual system against the actual target and reading real failure evidence — a statistically inconsistent success rate, a runtime error that a clean build log didn't predict, a scheduler timeout that live logs proved was a false negative — not by asking an AI once and shipping the first answer. The value demonstrated here is in the debugging: recognizing when a first attempt is subtly wrong, tracing a failure to its actual mechanism, and being able to explain why a fix works rather than just that it does.
